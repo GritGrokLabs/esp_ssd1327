@@ -221,11 +221,6 @@ static esp_err_t panel_ssd1327_init(esp_lcd_panel_t *panel)
     uint8_t precharge_2 = 0x04;
     err |= esp_lcd_panel_io_tx_param(io_handle, SSD1327_CMD_SET_PRECHARGE_2, &precharge_2, 1);
 
-    vTaskDelay(100 / portTICK_PERIOD_MS);
-
-    // Turn on the display
-    err |= esp_lcd_panel_io_tx_param(io_handle, SSD1327_CMD_DISPLAY_ON, NULL, 0);
-
     if (err == ESP_OK)
     {
         ESP_LOGI(TAG, "SSD1327 initialized successfully");
