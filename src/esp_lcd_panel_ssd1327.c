@@ -78,7 +78,7 @@ esp_err_t esp_lcd_new_panel_ssd1327(const esp_lcd_panel_io_handle_t io, const es
     esp_err_t ret = ESP_OK;
     ssd1327_panel_t *ssd1327 = NULL;
     ESP_GOTO_ON_FALSE(io && panel_dev_config && ret_panel, ESP_ERR_INVALID_ARG, err, TAG, "invalid argument");
-    ESP_GOTO_ON_FALSE(panel_dev_config->bits_per_pixel == 8, ESP_ERR_INVALID_ARG, err, TAG, "bpp must be 8");
+    ESP_GOTO_ON_FALSE(panel_dev_config->bits_per_pixel == 4, ESP_ERR_INVALID_ARG, err, TAG, "bpp must be 4");
     esp_lcd_panel_ssd1327_config_t *ssd1327_spec_config = (esp_lcd_panel_ssd1327_config_t *)panel_dev_config->vendor_config;
     ssd1327 = calloc(1, sizeof(ssd1327_panel_t));
     ESP_GOTO_ON_FALSE(ssd1327, ESP_ERR_NO_MEM, err, TAG, "no mem for ssd1327 panel");
@@ -291,7 +291,7 @@ static esp_err_t panel_ssd1327_draw_bitmap(esp_lcd_panel_t *panel, int x_start, 
                         TAG, "io tx param SSD1327_CMD_SET_COL_ADDR failed");
 
     // transfer frame buffer sizing (taking into account the 4-bit grayscale format)
-    size_t frame_buffer_size = pixel_count * ssd1327->bits_per_pixel / 8;
+    size_t frame_buffer_size = pixel_count * (((float)ssd1327->bits_per_pixel) / 8);
 
     uint8_t *cur_src_pixel = (uint8_t *)color_data;
     uint8_t *cur_dest_pixel = (uint8_t *)color_data;
