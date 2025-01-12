@@ -244,7 +244,9 @@ static esp_err_t panel_ssd1327_draw_bitmap(esp_lcd_panel_t *panel, int x_start, 
 {
     ESP_LOGD(TAG, "Top of panel_ssd1327_draw_bitmap: start (%d, %d) end (%d, %d)", x_start, y_start, x_end, y_end);
 
-    int pixel_count = (y_end - y_start) * (x_end - x_start);
+    // I'm doing this so that x_end and y_end are inclusive.
+    x_end--;
+    y_end--;
 
     ssd1327_panel_t *ssd1327 = __containerof(panel, ssd1327_panel_t, base);
     esp_lcd_panel_io_handle_t io = ssd1327->io;
@@ -264,19 +266,27 @@ static esp_err_t panel_ssd1327_draw_bitmap(esp_lcd_panel_t *panel, int x_start, 
         x_end = y_end;
         y_end = x;
     }
+
+    // because they are inclusive, we need to add 1 to the width and height.
+    int pixel_count = (y_end - y_start + 1) * (x_end - x_start + 1);
+
     // dividing by two in order to get the nibble-based indexes.
     uint8_t col_start = x_start / 2;
-    uint8_t col_end = (x_end - 1) / 2;
+    uint8_t col_end = x_end / 2;
 
-    ESP_LOGD(TAG, "Page start set:end to %d:%d. Pixel Count %d", col_start, col_end, pixel_count);
+    bool first_partial_byte = (x_start % 2) == 1;
+    bool last_partial_byte = (x_end % 2) == 0;
+
+    ESP_LOGD(TAG, "Mid of panel_ssd1327_draw_bitmap: start (%d, %d) end (%d, %d). Pixel Count: %d", x_start, y_start, x_end, y_end, pixel_count);
 
     // define an area of frame memory where MCU can access
     ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, SSD1327_CMD_SET_ROW_ADDR, (uint8_t[]){
                                                                                     (y_start & 0x7F),
-                                                                                    ((y_end - 1) & 0x7F),
+                                                                                    ((y_end) & 0x7F),
                                                                                 },
                                                   2),
                         TAG, "io tx param SSD1327_CMD_SET_ROW_ADDR failed");
+    ESP_LOGD(TAG, "Row start %d, Row end %d", y_start, y_end);
 
     ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_param(io, SSD1327_CMD_SET_COL_ADDR, (uint8_t[]){
                                                                                     (col_start & 0x3F),
@@ -284,27 +294,99 @@ static esp_err_t panel_ssd1327_draw_bitmap(esp_lcd_panel_t *panel, int x_start, 
                                                                                 },
                                                   2),
                         TAG, "io tx param SSD1327_CMD_SET_COL_ADDR failed");
-
-    // transfer frame buffer sizing (taking into account the 4-bit grayscale format)
-    size_t frame_buffer_size = pixel_count * (((float)ssd1327->bits_per_pixel) / 8);
+    ESP_LOGD(TAG, "Col start %d, Col end %d", col_start, col_end);
 
     uint8_t *cur_src_pixel = (uint8_t *)color_data;
     uint8_t *cur_dest_pixel = (uint8_t *)color_data;
-
     // We are going to walk through every array-entry in the color_data array. We are going to do an
     // in-place replacement of the 8-bit grayscale values with 4-bit grayscale values.
-    for (int i = 0; i < pixel_count; i++)
-    {
-        // Convert two 8-bit grayscale pixels to a single 4-bit grayscale byte
-        uint8_t pixel1 = *cur_src_pixel >> 4;       // High nibble (quantize 8-bit to 4-bit)
-        uint8_t pixel2 = *(cur_src_pixel + 1) >> 4; // Low nibble
-        *cur_dest_pixel = (rgb565_to_4bit_grayscale(pixel1) << 4) | rgb565_to_4bit_grayscale(pixel2);
 
-        cur_src_pixel += 2;
-        cur_dest_pixel++;
+    ESP_LOGD(TAG, "first_partial_byte %d, last_partial_byte %d. x_start %d, x_end %d", first_partial_byte, last_partial_byte, x_start, x_end);
+
+    bool black = true;
+
+    while (cur_src_pixel < (uint8_t *)color_data + pixel_count)
+    {
+        int src_byte_count = cur_src_pixel - (uint8_t *)color_data;
+
+        bool first_pixel_of_row = (src_byte_count % (x_end - x_start + 1)) == 0;
+        bool last_pixel_of_row = (src_byte_count > 0) && ((src_byte_count % (x_end - x_start + 1)) == (x_end - x_start));
+
+        if (first_pixel_of_row && first_partial_byte)
+        {
+            ESP_LOGD(TAG, "First. src_byte_count = %d", src_byte_count);
+            black = !black;
+
+            // Convert two 8-bit grayscale pixels to a single 4-bit grayscale byte
+            uint8_t pixel1 = 0xff;                  // High nibble (quantize 8-bit to 4-bit)
+            uint8_t pixel2 = *(cur_src_pixel) >> 4; // Low nibble
+            *cur_dest_pixel = (rgb565_to_4bit_grayscale(pixel1) << 4) | rgb565_to_4bit_grayscale(pixel2);
+            // if (first_partial_byte || last_partial_byte)
+            // {
+            //     if (black)
+            //     {
+            //         *cur_dest_pixel = 0xFF;
+            //     }
+            //     else
+            //     {
+            //         *cur_dest_pixel = 0x00;
+            //     }
+            // }
+            cur_src_pixel += 1;
+            cur_dest_pixel++;
+        }
+        else
+        {
+
+            if (last_pixel_of_row && last_partial_byte)
+            {
+                ESP_LOGD(TAG, "Last. src_byte_count = %d", src_byte_count);
+                // Convert two 8-bit grayscale pixels to a single 4-bit grayscale byte
+                uint8_t pixel1 = *(cur_src_pixel); // High nibble (quantize 8-bit to 4-bit)
+                uint8_t pixel2 = 0xff;             // Low nibble
+                *cur_dest_pixel = (rgb565_to_4bit_grayscale(pixel1) << 4) | rgb565_to_4bit_grayscale(pixel2);
+
+                // if (first_partial_byte || last_partial_byte)
+                // {
+                //     if (black)
+                //     {
+                //         *cur_dest_pixel = 0xFF;
+                //     }
+                //     else
+                //     {
+                //         *cur_dest_pixel = 0x00;
+                //     }
+                // }
+                cur_src_pixel += 1;
+                cur_dest_pixel++;
+            }
+            else
+            {
+
+                // Convert two 8-bit grayscale pixels to a single 4-bit grayscale byte
+                uint8_t pixel1 = *cur_src_pixel >> 4;       // High nibble (quantize 8-bit to 4-bit)
+                uint8_t pixel2 = *(cur_src_pixel + 1) >> 4; // Low nibble
+                *cur_dest_pixel = (rgb565_to_4bit_grayscale(pixel1) << 4) | rgb565_to_4bit_grayscale(pixel2);
+                // if (first_partial_byte || last_partial_byte)
+                // {
+                //     if (black)
+                //     {
+                //         *cur_dest_pixel = 0xFF;
+                //     }
+                //     else
+                //     {
+                //         *cur_dest_pixel = 0x00;
+                //     }
+                // }
+
+                cur_src_pixel += 2;
+                cur_dest_pixel++;
+            }
+        }
     }
 
-    ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_color(io, -1, color_data, frame_buffer_size), TAG, "io tx color failed");
+    ESP_LOGD(TAG, "src_byte_count %d. dest pixel count = %d", cur_src_pixel - (uint8_t *)color_data, cur_dest_pixel - (uint8_t *)color_data);
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_io_tx_color(io, -1, color_data, (cur_dest_pixel - (uint8_t *)color_data)), TAG, "io tx color failed");
 
     return ESP_OK;
 }
