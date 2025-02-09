@@ -242,7 +242,7 @@ uint8_t rgb565_to_4bit_grayscale(uint16_t rgb565)
 
 static esp_err_t panel_ssd1327_draw_bitmap(esp_lcd_panel_t *panel, int x_start, int y_start, int x_end, int y_end, const void *color_data)
 {
-    ESP_LOGD(TAG, "Top of panel_ssd1327_draw_bitmap: start (%d, %d) end (%d, %d)", x_start, y_start, x_end, y_end);
+    ESP_LOGV(TAG, "Top of panel_ssd1327_draw_bitmap: start (%d, %d) end (%d, %d)", x_start, y_start, x_end, y_end);
 
     // I'm doing this so that x_end and y_end are inclusive.
     x_end--;
